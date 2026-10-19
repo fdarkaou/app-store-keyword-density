@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>App Store Keyword Density Checker: any iOS listing</title>
+<meta name="description" content="Free keyword density report for any App Store listing: top words and phrases in the description, density, and which app-name words the description repeats. Uses Apple's public iTunes Lookup API.">
+<style>
+:root{--muted:#57606a;--line:#d0d7de}*{box-sizing:border-box}
+body{font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;color:#1f2328;background:#f6f8fa}
+main{max-width:860px;margin:0 auto;padding:24px 16px 48px}h1{font-size:1.6rem;margin:.2em 0}.lead{color:var(--muted);margin-top:0}
+form{display:flex;flex-wrap:wrap;gap:8px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px}
+input,select,button{font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:6px}input{flex:1 1 280px}
+button{background:#1f2328;color:#fff;cursor:pointer}#status{color:var(--muted);margin:12px 0}
+.app{display:flex;gap:12px;align-items:center;margin:16px 0}.app img{width:56px;height:56px;border-radius:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}
+section.card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+table{width:100%;border-collapse:collapse;font-size:.92rem}th,td{text-align:left;padding:3px 4px;border-bottom:1px solid #eaeef2}
+td.n{text-align:right;font-variant-numeric:tabular-nums}th.n{text-align:right}.tag{font-size:.75rem;background:#ddf4ff;border-radius:4px;padding:0 4px}
+footer{color:var(--muted);font-size:.9rem;margin-top:28px;border-top:1px solid var(--line);padding-top:14px}code{background:#eaeef2;padding:1px 4px;border-radius:4px}
+</style>
+</head>
+<body>
+<main>
+<h1>App Store Keyword Density Checker</h1>
+<p class="lead">Enter an App Store URL, app id or search term to see which words and phrases a listing's description leans on. Data comes straight from Apple's public iTunes Lookup API in your browser.</p>
+<form id="f">
+  <input id="q" placeholder="https://apps.apple.com/us/app/…/id389801252 or &quot;habit tracker&quot;" required>
+  <select id="country" aria-label="Storefront">
+    <option>us</option><option>gb</option><option>ca</option><option>au</option><option>de</option><option>fr</option><option>es</option><option>it</option><option>nl</option><option>be</option><option>jp</option><option>br</option><option>in</option>
+  </select>
+  <button>Analyse</button>
+</form>
+<div id="status"></div>
+<div id="out"></div>
+<footer>
+<p><strong>How it works.</strong> The description is lower-cased and split into words. Phrases that start or end with a common stopword are skipped. Density is the share of description words taken up by a term. <span class="tag">name</span> marks terms whose words all appear in the app name. App Store search is generally understood to rely on the app name, subtitle and keyword field rather than the description, so treat this as a readability and messaging check, not a ranking score.</p>
+<p>Prefer the terminal? <code>node cli.js 389801252</code>. See the <a href="https://github.com/fdarkaou/app-store-keyword-density">source on GitHub</a> (MIT).</p>
+<p>To see which searches an app actually shows up for, <a href="https://peekpanda.com">PeekPanda</a> keeps dated App Store search evidence for iOS apps; its <a href="https://peekpanda.com/docs/keyword-explorer">keyword explorer docs</a> explain what that evidence shows.</p>
+</footer>
+</main>
+<script type="module">
+import { densityReport, lookupApp, parseAppId, searchApps } from "./density.js";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const labels = { 1: "Single words", 2: "Two-word phrases", 3: "Three-word phrases" };
+
+async function run(q, country) {
+  $("status").textContent = "Fetching from Apple…"; $("out").innerHTML = "";
+  try {
+    let id = parseAppId(q);
+    if (!id) {
+      const r = await searchApps(q, country, 1);
+      if (!r.length) throw new Error(`No App Store results for "${q}" in ${country}.`);
+      id = String(r[0].trackId);
+    }
+    const app = await lookupApp(id, country);
+    if (!app) throw new Error(`App ${id} isn't available in the ${country} storefront.`);
+    const rep = densityReport({ name: app.trackName, description: app.description }, { maxN: 3, top: 15 });
+    const url = (app.trackViewUrl || "").replace(/\?uo=\d+$/, "");
+    let html = `<div class="app"><img src="${esc(app.artworkUrl100 || "")}" alt=""><div><strong>${esc(app.trackName)}</strong> by ${esc(app.sellerName)}<br>
+      <small>id ${app.trackId} · ${esc(country)} · v${esc(app.version)} · ${rep.totalWords} description words, ${rep.uniqueWords} unique · <a href="${esc(url)}" rel="nofollow">App Store</a></small></div></div><div class="grid">`;
+    for (const n of Object.keys(rep.ngrams)) {
+      const rows = rep.ngrams[n];
+      html += `<section class="card"><h3>${labels[n]}</h3>` + (rows.length
+        ? `<table><tr><th>term</th><th class="n">count</th><th class="n">density</th></tr>` +
+          rows.map((r) => `<tr><td>${esc(r.term)} ${r.inName ? '<span class="tag">name</span>' : ""}</td><td class="n">${r.count}</td><td class="n">${r.density.toFixed(2)}%</td></tr>`).join("") + `</table>`
+        : `<p>No phrase repeats.</p>`) + `</section>`;
+    }
+    html += `<section class="card"><h3>App name words in description</h3><table>` +
+      rep.nameCoverage.map((c) => `<tr><td>${esc(c.term)}</td><td class="n">${c.inDescription}×</td></tr>`).join("") + `</table></section></div>`;
+    $("out").innerHTML = html; $("status").textContent = "";
+    history.replaceState(null, "", `?q=${encodeURIComponent(q)}&country=${country}`);
+  } catch (e) { $("status").textContent = "Error: " + e.message; }
+}
+$("f").addEventListener("submit", (e) => { e.preventDefault(); run($("q").value.trim(), $("country").value); });
+const p = new URLSearchParams(location.search);
+if (p.get("country")) $("country").value = p.get("country");
+if (p.get("q")) { $("q").value = p.get("q"); run(p.get("q"), $("country").value); }
+</script>
+</body>
+</html>

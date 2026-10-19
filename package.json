@@ -1,0 +1,13 @@
+{
+  "name": "app-store-keyword-density",
+  "version": "0.1.0",
+  "description": "Keyword density report for any App Store listing, using Apple's public iTunes Lookup API. No dependencies.",
+  "type": "module",
+  "bin": { "app-store-keyword-density": "cli.js" },
+  "files": ["cli.js", "density.js"],
+  "scripts": { "test": "node --test" },
+  "engines": { "node": ">=18" },
+  "keywords": ["aso", "app-store", "keyword-density", "itunes", "cli"],
+  "author": "Fekri Darkaoui",
+  "license": "MIT"
+}
